@@ -1,62 +1,25 @@
-name: Build NixOS for Xiaomi MIX 2S (polaris)
-
+name: polaris
 on:
   workflow_dispatch:
-
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 300
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v27
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
         with:
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
             max-jobs = 2
             cores = 2
-
-      - name: Install packaging tools
-        run: sudo apt-get update && sudo apt-get install -y mtools dosfstools file
-
-      - name: Debug env
-        run: |
-          nix --version
-          uname -m
-          df -h /
-
-      - name: Build rootfs (ext4 image)
-        run: |
-          nix build github:dianqk/nixos-android-devices#devices.polaris.minimal.rootfs \
-            --out-link out/rootfs -L
-
-      - name: Build boot-files (EFI dir)
-        run: |
-          nix build github:dianqk/nixos-android-devices#devices.polaris.minimal.boot-files \
-            --out-link out/boot-files -L
-
-      - name: Build U-Boot
-        run: |
-          nix build github:dianqk/nixos-android-devices#devices.polaris.u-boot \
-            --out-link out/u-boot -L
-
-      - name: Inspect outputs
-        run: |
-          ls -la out/rootfs out/boot-files out/u-boot || true
-          file out/rootfs out/u-boot || true
-          du -sh out/rootfs out/boot-files out/u-boot || true
-
-      - name: Package TWRP flashable zip
-        run: |
-          chmod +x package.sh
-          ./package.sh out/rootfs out/boot-files out/u-boot nixos-polaris-twrp.zip
-
-      - name: Upload zip artifact
-        uses: actions/upload-artifact@v4
+      - run: sudo apt-get update && sudo apt-get install -y mtools dosfstools file
+      - run: nix build github:dianqk/nixos-android-devices#devices.polaris.minimal.rootfs --out-link out/rootfs -L
+      - run: nix build github:dianqk/nixos-android-devices#devices.polaris.minimal.boot-files --out-link out/boot-files -L
+      - run: nix build github:dianqk/nixos-android-devices#devices.polaris.u-boot --out-link out/u-boot -L
+      - run: ls -la out/rootfs out/boot-files out/u-boot && file out/rootfs out/u-boot
+      - run: chmod +x package.sh && ./package.sh out/rootfs out/boot-files out/u-boot nixos-polaris-twrp.zip
+      - uses: actions/upload-artifact@v4
         with:
           name: nixos-polaris-twrp-zip
           path: nixos-polaris-twrp.zip
-          if-no-files-found: error
