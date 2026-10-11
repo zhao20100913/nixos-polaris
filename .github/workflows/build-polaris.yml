@@ -1,62 +1,62 @@
-姓名: 为小米MIX2S(polaris)打造NixOS
+name: Build NixOS for Xiaomi MIX 2S (polaris)
 
-在……之上:
-workflow_dispatch:
+on:
+  workflow_dispatch:
 
-工作:
-建立:
-连续的：Ubuntu-最新
-timeout-minutes: 300
-步骤:
-      - 姓名: 签出回购
-uses: 操作/结帐@v4
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
--姓名：安装Nix
-uses：cachix/install-nix-action@v27
-和……一起:
-extra_nix_config: |
-access-tokens=github.com=${{secrets.GITHUB_TOKEN}}
-最大作业数=2
-芯数=2
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+            max-jobs = 2
+            cores = 2
 
-      - 姓名: 安装打包工具
-跑: sudo apt-get更新&&sudo apt-get安装-ymtools dosfstools文件
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y mtools dosfstools file
 
--姓名: 调试环境
-跑: |
-尼克斯--版本
-uname-m
-DF-h/
+      - name: Debug env
+        run: |
+          nix --version
+          uname -m
+          df -h /
 
-      - 姓名: 生成rootfs(ext4映像)
-跑: |
-Nix构建GitHub:dianqk/nixos-android-devices#devices。北极星。最小的。rootfs\
---out-link out/rootfs-L
+      - name: Build rootfs (ext4 image)
+        run: |
+          nix build github:dianqk/nixos-android-devices#devices.polaris.minimal.rootfs \
+            --out-link out/rootfs -L
 
--姓名: 生成引导文件(EFI目录)
-跑: |
-Nix构建GitHub:dianqk/nixos-android-devices#devices。北极星。最小的。启动文件\
---out-link out/boot-files-L
+      - name: Build boot-files (EFI dir)
+        run: |
+          nix build github:dianqk/nixos-android-devices#devices.polaris.minimal.boot-files \
+            --out-link out/boot-files -L
 
--姓名: 构建U-Boot
-跑: |
-Nix构建GitHub:dianqk/nixos-android-devices#devices.Polaris.U-Boot\
---out-link out/u-boot-L
+      - name: Build U-Boot
+        run: |
+          nix build github:dianqk/nixos-android-devices#devices.polaris.u-boot \
+            --out-link out/u-boot -L
 
--姓名: 检查输出
-跑: |
-LS-la输出/rootfs输出/boot文件输出/U-Boot||true
-文件输出/rootfs输出/u-boot||true
-du-sh out/rootfs out/boot-files out/u-boot||true
+      - name: Inspect outputs
+        run: |
+          ls -la out/rootfs out/boot-files out/u-boot || true
+          file out/rootfs out/u-boot || true
+          du -sh out/rootfs out/boot-files out/u-boot || true
 
-      - 姓名: 包TWRP可闪存拉链
-跑: |
-chmod+x Package.sh
-./Package.shout/rootfs out/boot-files out/u-boot nixos-polaris-twrp.zip
+      - name: Package TWRP flashable zip
+        run: |
+          chmod +x package.sh
+          ./package.sh out/rootfs out/boot-files out/u-boot nixos-polaris-twrp.zip
 
--姓名: 上传zip工件
-uses: 操作/上载工件@v4
-和……一起:
-姓名: nixos-polaris-twrp-zip
-路径: nixos-polaris-twrp.zip
-if-no-file-found: 误差
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nixos-polaris-twrp-zip
+          path: nixos-polaris-twrp.zip
+          if-no-files-found: error
