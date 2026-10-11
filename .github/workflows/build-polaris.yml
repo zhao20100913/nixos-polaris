@@ -1,0 +1,55 @@
+name: Build NixOS for Xiaomi MIX 2S (polaris)
+
+# 手动触发：在 GitHub 网页上点 Actions -> Run workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240   # 最长 4 小时，内核编译可能慢
+    steps:
+      - name: Checkout this repo (for package.sh)
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+            max-jobs = 2
+
+      - name: Show available flake outputs (debug)
+        run: nix flake show github:dianqk/nixos-android-devices --all-systems || true
+
+      - name: Build rootfs (ext4)
+        run: |
+          nix build github:dianqk/nixos-android-devices#devices.polaris.minimal.rootfs \
+            --out-link out/rootfs --max-jobs 2
+
+      - name: Build boot-files (EFI dir)
+        run: |
+          nix build github:dianqk/nixos-android-devices#devices.polaris.minimal.boot-files \
+            --out-link out/boot-files --max-jobs 2
+
+      - name: Build U-Boot
+        run: |
+          nix build github:dianqk/nixos-android-devices#devices.polaris.u-boot \
+            --out-link out/u-boot --max-jobs 2
+
+      - name: List built artifacts
+        run: |
+          ls -la out/rootfs out/boot-files out/u-boot || true
+          file out/rootfs out/u-boot || true
+
+      - name: Package TWRP flashable zip
+        run: |
+          chmod +x package.sh
+          ./package.sh out/rootfs out/boot-files out/u-boot nixos-polaris-twrp.zip
+
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nixos-polaris-twrp-zip
+          path: nixos-polaris-twrp.zip
+          if-no-files-found: error
