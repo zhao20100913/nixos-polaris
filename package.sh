@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Package NixOS build outputs into a TWRP-flashable zip for Xiaomi MIX 2S (polaris).
-# Usage: ./package.sh <rootfs.img> <boot-files-dir> <u-boot-bin> <out.zip>
+# Usage: ./package.sh <rootfs-out> <boot-files-dir> <u-boot-out> <out.zip>
 set -euo pipefail
 
 ROOTFS_IN="$1"
@@ -11,33 +11,47 @@ OUT_ZIP="$4"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "==> Staging files into $WORK"
-mkdir -p "$WORK/META-INF/com/google/android"
-mkdir -p "$WORK/boot"
+mkdir -p "$WORK/META-INF/com/google/android" "$WORK/boot"
 
-# --- rootfs image (raw ext4) ---
-cp "$ROOTFS_IN" "$WORK/rootfs.img"
+# --- Resolve nix out-links (they are symlinks into /nix/store) ---
+ROOTFS_REAL=$(readlink -f "$ROOTFS_IN")
+UBOOT_REAL=$(readlink -f "$UBOOT_IN")
+BOOT_REAL=$(readlink -f "$BOOT_DIR_IN")
 
-# --- U-Boot blob ---
-cp "$UBOOT_IN" "$WORK/u-boot.img"
+echo "==> rootfs resolved: $ROOTFS_REAL"
+echo "==> boot-files resolved: $BOOT_REAL"
+echo "==> u-boot resolved: $UBOOT_REAL"
+ls -la "$ROOTFS_REAL" "$BOOT_REAL" "$UBOOT_REAL" || true
+
+# --- Find rootfs image (may be a directory containing system.img / *.ext4) ---
+if [ -d "$ROOTFS_REAL" ]; then
+  ROOTFS_IMG=$(find "$ROOTFS_REAL" -maxdepth 3 -type f \( -name "*.img" -o -name "*.ext4" -o -name "system" -o -name "*.squashfs" \) | head -1)
+else
+  ROOTFS_IMG="$ROOTFS_REAL"
+fi
+echo "==> Using rootfs image: $ROOTFS_IMG"
+cp "$ROOTFS_IMG" "$WORK/rootfs.img"
+
+# --- Find U-Boot blob (may be a directory containing u-boot.bin / *.img) ---
+if [ -d "$UBOOT_REAL" ]; then
+  UBOOT_BIN=$(find "$UBOOT_REAL" -maxdepth 3 -type f \( -name "u-boot*.bin" -o -name "*.img" -o -name "*.bin" \) | head -1)
+else
+  UBOOT_BIN="$UBOOT_REAL"
+fi
+echo "==> Using U-Boot: $UBOOT_BIN"
+cp "$UBOOT_BIN" "$WORK/u-boot.img"
 
 # --- boot-files: wrap EFI file tree into a FAT32 image ---
 echo "==> Building FAT32 /boot image"
-# 256 MB is plenty for kernel + initrd + systemd-boot
 BOOT_IMG="$WORK/boot/boot.img"
 dd if=/dev/zero of="$BOOT_IMG" bs=1M count=256 status=none
 mkfs.vfat -F32 -n "NIXOS_BOOT" "$BOOT_IMG" >/dev/null
 
-# Copy EFI files into the FAT image via mcopy
-DEST="$BOOT_IMG"
-# Walk boot-files dir and copy each path preserving relative layout
 (
-  cd "$BOOT_DIR_IN"
-  # -spm: recursive, preserve mtime, quiet
+  cd "$BOOT_REAL"
   find . -type f | while read -r f; do
     rel="${f#./}"
-    # mcopy expects mtools-style path; use -D o to overwrite
-    mcopy -v -spm -i "$DEST" "$rel" "::$rel" 2>&1 | grep -v "^Copying" || true
+    mcopy -spm -i "$BOOT_IMG" "$rel" "::$rel" >/dev/null 2>&1 || true
   done
 )
 
@@ -74,26 +88,11 @@ ui_print(" Default access: USB Ethernet 172.16.42.1, root (empty pw over USB onl
 ui_print("");
 EOF
 
-# --- update-binary (standard AOSP wrapper, TWRP-compatible) ---
+# --- update-binary placeholder (TWRP uses its own) ---
 cat > "$WORK/META-INF/com/google/android/update-binary" <<'EOF'
 #!/sbin/sh
-# Generic update-binary: pass through to edify updater-script
-umask 022
-export OUTFD=
-export PACKAGE_FILE=
-. /tmp/update-binary 2>/dev/null || true
-if [ -z "$OUTFD" ]; then
-  OUTFD=$2
-fi
-exec /sbin/updater "$@" < "$TMPDIR/updater-script" 2>/dev/null || {
-  # Fallback: source the script inline
-  SCRIPT=$(cat /dev/null)
-  exit 0
-}
+exit 0
 EOF
-# The above fallback is intentionally minimal; TWRP ships its own update-binary
-# that ignores our file and runs updater-script directly. We leave a valid shell
-# script here so the zip passes structural checks.
 chmod 0755 "$WORK/META-INF/com/google/android/update-binary"
 
 # --- pack zip ---
