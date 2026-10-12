@@ -8,6 +8,11 @@ BOOT_DIR_IN="$2"
 UBOOT_IN="$3"
 OUT_ZIP="$4"
 
+# Resolve output to ABSOLUTE path BEFORE WORK gets cleaned up on exit.
+# Otherwise zip writes into $WORK (because of the sub-shell cd) and the
+# exit trap deletes it.
+OUT_ZIP="$(cd "$(dirname "$OUT_ZIP")" && pwd)/$(basename "$OUT_ZIP")"
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
